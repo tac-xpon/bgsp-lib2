@@ -135,42 +135,42 @@ pub fn draw(
     scalar: (u32, u32),
     gbuf: &mut image::RgbaImage,
 ) {
-    if x![size] == 0 || y![size] == 0 || x![scalar] == 0 || y![scalar] == 0 {
+    if x!(size) == 0 || y!(size) == 0 || x!(scalar) == 0 || y!(scalar) == 0 {
         return;
     }
-    let draw_size = (PATTERN_SIZE as i32 * x![size] as i32, PATTERN_SIZE as i32 * y![size] as i32);
+    let draw_size = (PATTERN_SIZE as i32 * x!(size) as i32, PATTERN_SIZE as i32 * y!(size) as i32);
     let (unit_i, unit_j, offset) = match symmetry {
         Symmetry::Normal         => (( 1, 0), ( 0, 1), (                0,                 0)),
-        Symmetry::FlipH          => ((-1, 0), ( 0, 1), (x![draw_size] - 1,                 0)),
-        Symmetry::FlipV          => (( 1, 0), ( 0,-1), (                0, y![draw_size] - 1)),
-        Symmetry::FlipHV         => ((-1, 0), ( 0,-1), (x![draw_size] - 1, y![draw_size] - 1)),
-        Symmetry::Rotate90       => (( 0, 1), (-1, 0), (y![draw_size] - 1,                 0)),
+        Symmetry::FlipH          => ((-1, 0), ( 0, 1), (x!(draw_size) - 1,                 0)),
+        Symmetry::FlipV          => (( 1, 0), ( 0,-1), (                0, y!(draw_size) - 1)),
+        Symmetry::FlipHV         => ((-1, 0), ( 0,-1), (x!(draw_size) - 1, y!(draw_size) - 1)),
+        Symmetry::Rotate90       => (( 0, 1), (-1, 0), (y!(draw_size) - 1,                 0)),
         Symmetry::Rotate90FlipH  => (( 0, 1), ( 1, 0), (                0,                 0)),
-        Symmetry::Rotate90FlipV  => (( 0,-1), (-1, 0), (y![draw_size] - 1, x![draw_size] - 1)),
-        Symmetry::Rotate90FlipHV => (( 0,-1), ( 1, 0), (                0, x![draw_size] - 1)),
+        Symmetry::Rotate90FlipV  => (( 0,-1), (-1, 0), (y!(draw_size) - 1, x!(draw_size) - 1)),
+        Symmetry::Rotate90FlipHV => (( 0,-1), ( 1, 0), (                0, x!(draw_size) - 1)),
     };
     let mut idx = 0;
     let mut y_j = (0, 0);
-    for _ in 0..y![draw_size] {
+    for _ in 0..y!(draw_size) {
         let mut x_i = (0, 0);
-        for _ in 0..x![size] {
+        for _ in 0..x!(size) {
             let row = &pattern[idx];
             idx += 1;
             for q in 0..PATTERN_SIZE {
                 let c = (*row >> ((7 - q) * 8)) & 0xff;
                 let rgba = color_tbl[c as usize];
-                let px = x![position] + (x![x_i] + x![y_j] + x![offset]) as u32 * x![scalar];
-                let py = y![position] + (y![x_i] + y![y_j] + y![offset]) as u32 * y![scalar];
-                for sy in 0..y![scalar] {
-                    for sx in 0..x![scalar] {
+                let px = x!(position) + (x!(x_i) + x!(y_j) + x!(offset)) as u32 * x!(scalar);
+                let py = y!(position) + (y!(x_i) + y!(y_j) + y!(offset)) as u32 * y!(scalar);
+                for sy in 0..y!(scalar) {
+                    for sx in 0..x!(scalar) {
                         gbuf.put_pixel(px + sx, py + sy, rgba);
                     }
                 }
-                x![x_i] += x![unit_i];
-                y![x_i] += y![unit_i];
+                x!(x_i) += x!(unit_i);
+                y!(x_i) += y!(unit_i);
             }
         }
-        x![y_j] += x![unit_j];
-        y![y_j] += y![unit_j];
+        x!(y_j) += x!(unit_j);
+        y!(y_j) += y!(unit_j);
     }
 }
