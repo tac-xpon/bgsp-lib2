@@ -1,5 +1,10 @@
-pub use super::bgsp_common::{PATTERN_SIZE, NUM_PALETTE_COL, Rgba, RgbaImage, BgCode, BgPalette, BgSymmetry};
-use super::bg_lib;
+pub use super::bgsp_common::{
+    PATTERN_SIZE, NUM_PALETTE_COL, PIXEL_SCALE_MAX,
+    Rgba, RgbaImage, imageops,
+    BgCode, BgPalette, BgSymmetry
+};
+use super::texture_bank;
+pub type BgTextureBank<'a> = texture_bank::TextureBank<'a>;
 
 const DIRTY_MARK: u32 = 0x1000_0000;
 
@@ -8,7 +13,7 @@ fn u_mod(x: i32, p: i32) -> i32 {
     (x % p + p) % p
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub struct CharAttributes {
     pub palette: BgPalette,
     pub symmetry: BgSymmetry,
@@ -22,7 +27,7 @@ impl CharAttributes {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub struct AChar {
     pub code: BgCode,
     pub palette: BgPalette,
@@ -36,23 +41,23 @@ impl AChar {
             symmetry
         }
     }
+
+    #[inline]
+    pub fn force_dirty() -> Self {
+        Self {
+            code: DIRTY_MARK.into(),
+            palette: DIRTY_MARK.into(),
+            symmetry: BgSymmetry::non_default(),
+        }
+    }
 }
 
-#[derive(Default, Clone)]
-struct Buffers {
-    code: Vec<BgCode>,
-    palette: Vec<BgPalette>,
-    symmetry: Vec<BgSymmetry>,
-}
-
-#[derive(Clone)]
 pub struct BgResources<'a> {
     rect_size: (i32, i32),
     linear_size: i32,
-    cur_buffers: Buffers,
-    alt_buffers: Buffers,
-    char_data: &'a [[u64; PATTERN_SIZE]],
-    pal_data: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
+    cur_buffer: Vec<AChar>,
+    alt_buffer: Vec<AChar>,
+    texture_bank: BgTextureBank<'a>,
     pixel_scale: i32,
     base_symmetry: BgSymmetry,
     rendered_image: RgbaImage,
@@ -60,14 +65,13 @@ pub struct BgResources<'a> {
 
 const WIDTH_MAX: i32 = 8192;    // = 32 * 256 Characters
 const HEIGHT_MAX: i32 = 8192;   // = 32 * 256 Characters
-const PIXEL_SCALE_MAX: i32 = 4;
 
 impl<'a> BgResources<'a> {
 
     pub fn with_base_symmetry(
         rect_size: (i32, i32),
-        char_data: &'a [[u64; PATTERN_SIZE]],
-        pal_data: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
+        pattern_tbl: &'a [Option<(u32, u32, &'a [u64])>],
+        palette_tbl: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
         pixel_scale: i32,
         base_symmetry: BgSymmetry,
     ) -> Self {
@@ -80,16 +84,13 @@ impl<'a> BgResources<'a> {
                 if rect_size.1 > HEIGHT_MAX { HEIGHT_MAX } else { rect_size.1 }
             } else { 1 };
         let linear_size = width * height;
-        let cur_buffers = Buffers {
-            code: vec![BgCode::default(); linear_size as usize],
-            palette: vec![BgPalette::default(); linear_size as usize],
-            symmetry: vec![BgSymmetry::default(); linear_size as usize],
-        };
-        let alt_buffers = Buffers {
-            code: vec![DIRTY_MARK; linear_size as usize],
-            palette: vec![DIRTY_MARK; linear_size as usize],
-            symmetry: vec![BgSymmetry::non_default(); linear_size as usize],
-        };
+        let cur_buffer = vec![AChar::default(); linear_size as usize];
+        let alt_buffer = vec![AChar::force_dirty(); linear_size as usize];
+        let texture_bank = BgTextureBank::new(
+            pattern_tbl,
+            palette_tbl,
+            pixel_scale,
+        );
         let pixel_scale =
             if pixel_scale > 0 {
                 if pixel_scale > PIXEL_SCALE_MAX { PIXEL_SCALE_MAX } else { pixel_scale }
@@ -103,10 +104,9 @@ impl<'a> BgResources<'a> {
         Self {
             rect_size: (width, height),
             linear_size,
-            cur_buffers,
-            alt_buffers,
-            char_data,
-            pal_data,
+            cur_buffer,
+            alt_buffer,
+            texture_bank,
             pixel_scale,
             base_symmetry,
             rendered_image,
@@ -115,11 +115,12 @@ impl<'a> BgResources<'a> {
 
     pub fn new(
         rect_size: (i32, i32),
-        char_data: &'a [[u64; PATTERN_SIZE]],
-        pal_data: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
+        pattern_tbl: &'a [Option<(u32, u32, &'a [u64])>],
+        palette_tbl: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
         pixel_scale: i32,
     ) -> Self {
-        Self::with_base_symmetry(rect_size, char_data, pal_data, pixel_scale, BgSymmetry::default())
+        let base_symmetry = BgSymmetry::default();
+        Self::with_base_symmetry(rect_size, pattern_tbl, palette_tbl, pixel_scale, base_symmetry)
     }
 
     pub const fn width(&self) -> i32 {
@@ -154,19 +155,13 @@ impl<'a> BgResources<'a> {
     #[inline(always)]
     fn _get_achar(&self, idx: i32) -> AChar {
         let idx = u_mod(idx, self.linear_size) as usize;
-        AChar {
-            code: self.cur_buffers.code[idx],
-            palette: self.cur_buffers.palette[idx],
-            symmetry: self.cur_buffers.symmetry[idx],
-        }
+        self.cur_buffer[idx]
     }
 
     #[inline(always)]
     fn _set_achar(&mut self, idx: i32, achar: &AChar) -> &mut Self {
         let idx = u_mod(idx, self.linear_size) as usize;
-        self.cur_buffers.code[idx] = achar.code;
-        self.cur_buffers.palette[idx] = achar.palette;
-        self.cur_buffers.symmetry[idx] = achar.symmetry;
+        self.cur_buffer[idx] = *achar;
         self
     }
 
@@ -219,16 +214,16 @@ impl<'a> BgResources<'a> {
     fn _get_attributes(&self, idx: i32) -> CharAttributes {
         let idx = u_mod(idx, self.linear_size) as usize;
         CharAttributes {
-            palette: self.cur_buffers.palette[idx],
-            symmetry: self.cur_buffers.symmetry[idx],
+            palette: self.cur_buffer[idx].palette,
+            symmetry: self.cur_buffer[idx].symmetry,
         }
     }
 
     #[inline(always)]
     fn _set_attributes(&mut self, idx: i32, attributes: &CharAttributes) -> &mut Self {
         let idx = u_mod(idx, self.linear_size) as usize;
-        self.cur_buffers.palette[idx] = attributes.palette;
-        self.cur_buffers.symmetry[idx] = attributes.symmetry;
+        self.cur_buffer[idx].palette = attributes.palette;
+        self.cur_buffer[idx].symmetry = attributes.symmetry;
         self
     }
 
@@ -275,13 +270,13 @@ impl<'a> BgResources<'a> {
     #[inline(always)]
     fn _get_code(&self, idx: i32) -> BgCode {
         let idx = u_mod(idx, self.linear_size) as usize;
-        self.cur_buffers.code[idx]
+        self.cur_buffer[idx].code
     }
 
     #[inline(always)]
     fn _set_code(&mut self, idx: i32, code: BgCode) -> &mut Self {
         let idx = u_mod(idx, self.linear_size) as usize;
-        self.cur_buffers.code[idx] = code;
+        self.cur_buffer[idx].code = code;
         self
     }
 
@@ -331,13 +326,13 @@ impl<'a> BgResources<'a> {
     #[inline(always)]
     fn _get_palette(&self, idx: i32) -> BgPalette {
         let idx = u_mod(idx, self.linear_size) as usize;
-        self.cur_buffers.palette[idx]
+        self.cur_buffer[idx].palette
     }
 
     #[inline(always)]
     fn _set_palette(&mut self, idx: i32, palette: BgPalette) -> &mut Self {
         let idx = u_mod(idx, self.linear_size) as usize;
-        self.cur_buffers.palette[idx] = palette;
+        self.cur_buffer[idx].palette = palette;
         self
     }
 
@@ -384,13 +379,13 @@ impl<'a> BgResources<'a> {
     #[inline(always)]
     fn _get_symmetry(&self, idx: i32) -> BgSymmetry {
         let idx = u_mod(idx ,self.linear_size) as usize;
-        self.cur_buffers.symmetry[idx]
+        self.cur_buffer[idx].symmetry
     }
 
     #[inline(always)]
     fn _set_symmetry(&mut self, idx: i32, symmetry: BgSymmetry) -> &mut Self {
         let idx = u_mod(idx ,self.linear_size) as usize;
-        self.cur_buffers.symmetry[idx] = symmetry;
+        self.cur_buffer[idx].symmetry = symmetry;
         self
     }
 
@@ -439,23 +434,21 @@ impl<'a> BgResources<'a> {
         let mut idx = 0;
         for y in 0..self.rect_size.1 {
             for x in 0..self.rect_size.0 {
-                if self.cur_buffers.code[idx] != self.alt_buffers.code[idx]
-                || self.cur_buffers.palette[idx] != self.alt_buffers.palette[idx]
-                || self.cur_buffers.symmetry[idx] != self.alt_buffers.symmetry[idx] {
-                    self.alt_buffers.code[idx] = self.cur_buffers.code[idx];
-                    self.alt_buffers.palette[idx] = self.cur_buffers.palette[idx];
-                    self.alt_buffers.symmetry[idx] = self.cur_buffers.symmetry[idx];
+                if self.cur_buffer[idx] != self.alt_buffer[idx] {
+                    self.alt_buffer[idx] = self.cur_buffer[idx];
                     // rendering proc
-                    bg_lib::drawchar(
-                        self.char_data,
-                        self.pal_data,
-                        self.cur_buffers.code[idx],
-                        self.cur_buffers.palette[idx],
-                        self.cur_buffers.symmetry[idx].compose(self.base_symmetry),
-                        ((x * 8 * self.pixel_scale) as u32, (y * 8 * self.pixel_scale) as u32),
-                        (self.pixel_scale as u32, self.pixel_scale as u32),
-                        &mut self.rendered_image,
-                    );
+                    if let Some(t) = self.texture_bank.texture(
+                        self.cur_buffer[idx].code,
+                        self.cur_buffer[idx].palette,
+                        self.cur_buffer[idx].symmetry
+                    ) {
+                        imageops::replace(
+                            &mut self.rendered_image,
+                            &*t,
+                            (x * PATTERN_SIZE as i32 * self.pixel_scale) as i64,
+                            (y * PATTERN_SIZE as i32 * self.pixel_scale) as i64,
+                        );
+                    }
                     done += 1;
                 }
                 idx += 1;

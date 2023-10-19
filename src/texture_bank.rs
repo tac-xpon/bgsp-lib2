@@ -1,21 +1,29 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use super::bgsp_common::{PATTERN_SIZE, NUM_PALETTE_COL, Rgba, RgbaImage, SpCode, SpPalette, SpSymmetry};
-use super::sp_lib;
+use super::bgsp_common::{
+    self,
+    PATTERN_SIZE, NUM_PALETTE_COL,
+    Rgba, RgbaImage,
+    Code, Palette, Symmetry,
+};
 
-type SpTexture = RgbaImage;
-type RcSpTexture = Rc<SpTexture>;
+type Texture = RgbaImage;
+type RcTexture = Rc<Texture>;
 
-pub struct SpTextureBank<'a> {
+pub struct TextureBank<'a> {
     pattern_tbl: &'a [Option<(u32, u32, &'a [u64])>],
     palette_tbl: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
     pixel_scale: i32,
-    texture_cache: BTreeMap<(SpCode, SpPalette, SpSymmetry), RcSpTexture>,
+    texture_cache: BTreeMap<(Code, Palette, Symmetry), RcTexture>,
 }
 
-impl<'a> SpTextureBank<'a> {
-    pub fn new(pattern_tbl: &'a [Option<(u32, u32, &'a [u64])>], palette_tbl: &'a [[Rgba<u8>; NUM_PALETTE_COL]], pixel_scale: i32) -> Self {
+impl<'a> TextureBank<'a> {
+    pub fn new(
+        pattern_tbl: &'a [Option<(u32, u32, &'a [u64])>],
+        palette_tbl: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
+        pixel_scale: i32
+    ) -> Self {
         Self {
             pattern_tbl,
             palette_tbl,
@@ -36,7 +44,7 @@ impl<'a> SpTextureBank<'a> {
         self.texture_cache.len()
     }
 
-    pub fn texture(&mut self, pattern_no: SpCode, palette_no: SpPalette, symmetry: SpSymmetry) -> Option<RcSpTexture> {
+    pub fn texture(&mut self, pattern_no: Code, palette_no: Palette, symmetry: Symmetry) -> Option<RcTexture> {
         if let Some(result) = self.texture_cache.get(&(pattern_no, palette_no, symmetry)) {
             Some(result.clone())
         } else {
@@ -48,8 +56,8 @@ impl<'a> SpTextureBank<'a> {
                     (pattern_info.1, pattern_info.0)
                 };
                 if size.0 > 0 && size.1 > 0 {
-                    let mut buffer = SpTexture::new(size.0 * PATTERN_SIZE as u32 * scale, size.1 * PATTERN_SIZE as u32 * scale);
-                    sp_lib::drawsp((pattern_info.0, pattern_info.1), pattern_info.2, &self.palette_tbl[palette_no as usize], symmetry, (0, 0), (scale, scale), &mut buffer);
+                    let mut buffer = Texture::new(size.0 * PATTERN_SIZE as u32 * scale, size.1 * PATTERN_SIZE as u32 * scale);
+                    bgsp_common::draw((pattern_info.0, pattern_info.1), pattern_info.2, &self.palette_tbl[palette_no as usize], symmetry, (0, 0), (scale, scale), &mut buffer);
                     let rc_texture = Rc::new(buffer);
                     let _ = self.texture_cache.insert((pattern_no, palette_no, symmetry), rc_texture.clone());
                     Some(rc_texture)

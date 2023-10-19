@@ -22,8 +22,8 @@ impl <'a> BgPlane<'a> {
     pub fn new(
         buffer_rect_size: (i32, i32),
         view_size: (i32, i32),
-        char_data: &'a [[u64; PATTERN_SIZE]],
-        pal_data: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
+        pattern_tbl: &'a [Option<(u32, u32, &'a [u64])>],
+        palette_tbl: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
         pixel_scale: i32,
     ) -> Self {
         let draw_rects: DrawRects = vec![
@@ -33,7 +33,7 @@ impl <'a> BgPlane<'a> {
             )
         ];
         Self {
-            resources: BgResources::new(buffer_rect_size, char_data, pal_data, pixel_scale),
+            resources: BgResources::new(buffer_rect_size, pattern_tbl, palette_tbl, pixel_scale),
             buffer_rect_size,
             whole_size: (buffer_rect_size.0 * PATTERN_SIZE as i32, buffer_rect_size.1 * PATTERN_SIZE as i32),
             view_size,

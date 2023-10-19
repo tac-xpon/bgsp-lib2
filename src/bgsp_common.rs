@@ -3,9 +3,10 @@ use crate::{
     x, y,
 };
 
-pub const PATTERN_SIZE: usize = 8;
+pub const PATTERN_SIZE: usize = u64::BITS as usize / 8;
 pub const NUM_PALETTE_TBL: usize = 64;
 pub const NUM_PALETTE_COL: usize = 256;
+pub const PIXEL_SCALE_MAX: i32 = 4;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Pos<T> {
@@ -24,8 +25,8 @@ impl<T> Pos<T> {
 pub type BgPos = Pos<i32>;
 pub type SpPos = Pos<i32>;
 
-type Code = u32;
-type Palette = u32;
+pub type Code = u32;
+pub type Palette = u32;
 
 pub type BgCode = Code;
 pub type BgPalette = Palette;
@@ -138,7 +139,7 @@ pub fn draw(
     if x!(size) == 0 || y!(size) == 0 || x!(scalar) == 0 || y!(scalar) == 0 {
         return;
     }
-    let draw_size = (PATTERN_SIZE as i32 * x!(size) as i32, PATTERN_SIZE as i32 * y!(size) as i32);
+    let draw_size = (x!(size) as i32 * PATTERN_SIZE as i32, y!(size) as i32 * PATTERN_SIZE as i32);
     let (unit_i, unit_j, offset) = match symmetry {
         Symmetry::Normal         => (( 1, 0), ( 0, 1), (                0,                 0)),
         Symmetry::FlipH          => ((-1, 0), ( 0, 1), (x!(draw_size) - 1,                 0)),
@@ -149,25 +150,28 @@ pub fn draw(
         Symmetry::Rotate90FlipV  => (( 0,-1), (-1, 0), (y!(draw_size) - 1, x!(draw_size) - 1)),
         Symmetry::Rotate90FlipHV => (( 0,-1), ( 1, 0), (                0, x!(draw_size) - 1)),
     };
-    let mut idx = 0;
+    let mut pattern = pattern.into_iter();
     let mut y_j = (0, 0);
     for _ in 0..y!(draw_size) {
         let mut x_i = (0, 0);
         for _ in 0..x!(size) {
-            let row = &pattern[idx];
-            idx += 1;
-            for q in 0..PATTERN_SIZE {
-                let c = (*row >> ((7 - q) * 8)) & 0xff;
-                let rgba = color_tbl[c as usize];
-                let px = x!(position) + (x!(x_i) + x!(y_j) + x!(offset)) as u32 * x!(scalar);
-                let py = y!(position) + (y!(x_i) + y!(y_j) + y!(offset)) as u32 * y!(scalar);
-                for sy in 0..y!(scalar) {
-                    for sx in 0..x!(scalar) {
-                        gbuf.put_pixel(px + sx, py + sy, rgba);
+            if let Some(row) = pattern.next() {
+                let mut c = *row;
+                for _ in 0..PATTERN_SIZE {
+                    c = c.rotate_left(8);
+                    let rgba = color_tbl[(c & 0xff) as usize];
+                    let px = x!(position) + (x!(x_i) + x!(y_j) + x!(offset)) as u32 * x!(scalar);
+                    let py = y!(position) + (y!(x_i) + y!(y_j) + y!(offset)) as u32 * y!(scalar);
+                    for sy in 0..y!(scalar) {
+                        for sx in 0..x!(scalar) {
+                            gbuf.put_pixel(px + sx, py + sy, rgba);
+                        }
                     }
+                    x!(x_i) += x!(unit_i);
+                    y!(x_i) += y!(unit_i);
                 }
-                x!(x_i) += x!(unit_i);
-                y!(x_i) += y!(unit_i);
+            } else {
+                return;
             }
         }
         x!(y_j) += x!(unit_j);
