@@ -440,7 +440,7 @@ impl<'a> BgResources<'a> {
                     if let Some(t) = self.texture_bank.texture(
                         self.cur_buffer[idx].code,
                         self.cur_buffer[idx].palette,
-                        self.cur_buffer[idx].symmetry
+                        self.cur_buffer[idx].symmetry.compose(self.base_symmetry),
                     ) {
                         imageops::replace(
                             &mut self.rendered_image,
