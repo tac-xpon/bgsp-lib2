@@ -1,40 +1,31 @@
+pub use std::rc::Rc;
+pub use std::cell::RefCell;
+
 pub use super::classic_sprite::*;
 use super::texture_bank;
 pub type SpTextureBank<'a> = texture_bank::TextureBank<'a>;
 
 pub struct SpResources<'a> {
     pub sp: Vec<ClassicSprite>,
-    pub texture_bank: SpTextureBank<'a>,
+    pub texture_bank: Rc<RefCell<&'a mut SpTextureBank<'a>>>,
     pub pixel_scale: i32,
     pub base_symmetry: SpSymmetry,
 }
 
-use super::bgsp_common::{
-    Rgba, RgbaImage, imageops,
-    NUM_PALETTE_COL, PIXEL_SCALE_MAX,
-};
+use super::bgsp_common::{RgbaImage, imageops};
 use std::collections::BTreeMap;
 impl<'a> SpResources<'a> {
 
     pub fn with_base_symmetry(
         max_sprites: usize,
-        pattern_tbl: &'a [Option<(u32, u32, &'a [u64])>],
-        palette_tbl: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
-        pixel_scale: i32,
+        texture_bank: Rc<RefCell<&'a mut SpTextureBank<'a>>>,
         base_symmetry: SpSymmetry,
     ) -> Self {
         let mut sp: Vec<ClassicSprite> = Vec::with_capacity(max_sprites);
         for _ in 0..max_sprites {
             sp.push(ClassicSprite { ..Default::default()});
         }
-        let texture_bank = SpTextureBank::new(
-            pattern_tbl,
-            palette_tbl,
-            pixel_scale,
-        );
-        let pixel_scale = if pixel_scale > 0 {
-            if pixel_scale > PIXEL_SCALE_MAX { PIXEL_SCALE_MAX } else { pixel_scale }
-        } else { 1 };
+        let pixel_scale = texture_bank.borrow().pixel_scale();
         Self {
             sp,
             texture_bank,
@@ -45,12 +36,10 @@ impl<'a> SpResources<'a> {
 
     pub fn new(
         num_sprites: usize,
-        pattern_tbl: &'a [Option<(u32, u32, &'a [u64])>],
-        palette_tbl: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
-        pixel_scale: i32,
+        texture_bank: Rc<RefCell<&'a mut SpTextureBank<'a>>>,
     ) -> Self {
         let base_symmetry = SpSymmetry::default();
-        Self::with_base_symmetry(num_sprites, pattern_tbl, palette_tbl, pixel_scale, base_symmetry)
+        Self::with_base_symmetry(num_sprites, texture_bank, base_symmetry)
     }
 
     pub fn sp(&mut self, sp_no: usize) -> &mut ClassicSprite {
@@ -87,7 +76,7 @@ impl<'a> SpResources<'a> {
                 continue;
             }
             let symmetry = self.base_symmetry.compose(a_sp.symmetry);
-            if let Some(t) = self.texture_bank.texture(a_sp.code, a_sp.palette, symmetry) {
+            if let Some(t) = self.texture_bank.borrow_mut().texture(a_sp.code, a_sp.palette, symmetry) {
                 imageops::overlay(
                     &mut image_buffer,
                     &*t,

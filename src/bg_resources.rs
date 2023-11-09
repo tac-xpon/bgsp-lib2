@@ -1,3 +1,6 @@
+pub use std::rc::Rc;
+pub use std::cell::RefCell;
+
 pub use super::bgsp_common::{
     PATTERN_SIZE, NUM_PALETTE_COL, PIXEL_SCALE_MAX,
     Rgba, RgbaImage, imageops,
@@ -57,7 +60,7 @@ pub struct BgResources<'a> {
     linear_size: i32,
     cur_buffer: Vec<AChar>,
     alt_buffer: Vec<AChar>,
-    texture_bank: BgTextureBank<'a>,
+    texture_bank: Rc<RefCell<&'a mut BgTextureBank<'a>>>,
     pixel_scale: i32,
     base_symmetry: BgSymmetry,
     rendered_image: RgbaImage,
@@ -70,9 +73,7 @@ impl<'a> BgResources<'a> {
 
     pub fn with_base_symmetry(
         rect_size: (i32, i32),
-        pattern_tbl: &'a [Option<(u32, u32, &'a [u64])>],
-        palette_tbl: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
-        pixel_scale: i32,
+        texture_bank: Rc<RefCell<&'a mut BgTextureBank<'a>>>,
         base_symmetry: BgSymmetry,
     ) -> Self {
         let width =
@@ -86,15 +87,7 @@ impl<'a> BgResources<'a> {
         let linear_size = width * height;
         let cur_buffer = vec![AChar::default(); linear_size as usize];
         let alt_buffer = vec![AChar::force_dirty(); linear_size as usize];
-        let texture_bank = BgTextureBank::new(
-            pattern_tbl,
-            palette_tbl,
-            pixel_scale,
-        );
-        let pixel_scale =
-            if pixel_scale > 0 {
-                if pixel_scale > PIXEL_SCALE_MAX { PIXEL_SCALE_MAX } else { pixel_scale }
-            } else { 1 };
+        let pixel_scale = texture_bank.borrow().pixel_scale();
         let rendered_image =
             RgbaImage::new(
                 (width * PATTERN_SIZE as i32 * pixel_scale) as u32,
@@ -115,12 +108,10 @@ impl<'a> BgResources<'a> {
 
     pub fn new(
         rect_size: (i32, i32),
-        pattern_tbl: &'a [Option<(u32, u32, &'a [u64])>],
-        palette_tbl: &'a [[Rgba<u8>; NUM_PALETTE_COL]],
-        pixel_scale: i32,
+        texture_bank: Rc<RefCell<&'a mut BgTextureBank<'a>>>,
     ) -> Self {
         let base_symmetry = BgSymmetry::default();
-        Self::with_base_symmetry(rect_size, pattern_tbl, palette_tbl, pixel_scale, base_symmetry)
+        Self::with_base_symmetry(rect_size, texture_bank, base_symmetry)
     }
 
     pub const fn width(&self) -> i32 {
@@ -437,7 +428,7 @@ impl<'a> BgResources<'a> {
                 if self.cur_buffer[idx] != self.alt_buffer[idx] {
                     self.alt_buffer[idx] = self.cur_buffer[idx];
                     // rendering proc
-                    if let Some(t) = self.texture_bank.texture(
+                    if let Some(t) = self.texture_bank.borrow_mut().texture(
                         self.cur_buffer[idx].code,
                         self.cur_buffer[idx].palette,
                         self.cur_buffer[idx].symmetry.compose(self.base_symmetry),
